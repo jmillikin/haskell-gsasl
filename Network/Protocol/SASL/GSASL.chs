@@ -32,6 +32,8 @@ module Network.Protocol.SASL.GSASL (
 	
 	-- * Context procedures
 	,mkContext
+	,freeContext
+	,withContext
 	,clientMechanisms
 	,serverMechanisms
 	,clientSupportP
@@ -50,6 +52,8 @@ module Network.Protocol.SASL.GSASL (
 	-- * Session procedures
 	,clientStart
 	,serverStart
+	,freeSession
+	,withSession
 	,step
 	,step64
 	,encode
@@ -133,11 +137,18 @@ mkContext =
 	id `Ptr ContextPtr'
 	} -> `()' checkRC* #}
 
-{- -- TODO: make this automatic in mkContext
-{#fun gsasl_done {
+freeContext :: Context -> IO ()
+freeContext ctxt = do
+	hook <- callbackHookGet (rawContext ctxt)
+	freeStablePtr . castPtrToStablePtr $ hook
+	gsasl_done ctxt
+
+{#fun gsasl_done  {
 	rawContext `Context'
 	} -> `()' #}
--}
+
+withContext :: (Context -> IO a) -> IO a
+withContext = bracket mkContext freeContext
 
 clientMechanisms :: Context -> IO [String]
 clientMechanisms ctxt =
@@ -191,7 +202,7 @@ serverMechanisms ctxt =
 mkCallbackWrapper :: CallbackComputation -> (FunPtr CallbackComputationPtr -> IO a) -> IO a
 mkCallbackWrapper comp block = bracket
 	(callbackWrapper $ mkCallbackWrapper' comp)
-	--(freeHaskellFunPtr)
+	--(freeHaskellFunPtr) -- TODO
 	(\_ -> return ())
 	(block)
 
@@ -285,6 +296,19 @@ serverStart ctxt s =
 	,id `Ptr SessionPtr'
 	} -> `()' checkRC* #}
 
+freeSession :: Session -> IO ()
+freeSession session = do
+	hook <- sessionHookGet (rawSession session)
+	freeStablePtr . castPtrToStablePtr $ hook
+	gsasl_finish session
+
+{#fun gsasl_finish {
+	 rawSession `Session'
+	} -> `()' #}
+
+withSession :: IO Session -> (Session -> IO a) -> IO a
+withSession getSession = bracket getSession freeSession
+
 step :: Session -> String -> IO (String, ReturnCode)
 step s input =
 	withCStringLen input $ \(cInput, cInputLen) -> do
@@ -312,12 +336,6 @@ step64 s input =
 
 gsasl_step64 :: SessionPtr -> CString -> Ptr CString -> IO CInt
 gsasl_step64 = {#call gsasl_step64 as gsasl_step64' #}
-
-{- -- TODO: make this automatic in client/serverStart
-{#fun gsasl_finish as finish {
-	 rawSession `Session'
-	} -> `()' #}
--}
 
 encode :: Session -> String -> IO String
 encode = encodeDecodeImpl {#call gsasl_encode #}
