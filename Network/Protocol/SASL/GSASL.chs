@@ -43,6 +43,7 @@ module Network.Protocol.SASL.GSASL (
 	-- * Callback management
 	,callbackSet
 	,callback
+	,withCallbackSet
 	
 	-- * Property set/get
 	,propertySet
@@ -196,18 +197,27 @@ serverMechanisms ctxt =
 -- Callback management
 {#fun gsasl_callback_set as callbackSet {
 	 rawContext `Context'
-	,mkCallbackWrapper* `CallbackComputation'
+	,id `FunPtr CallbackComputationPtr'
 	} -> `()' #}
 
-mkCallbackWrapper :: CallbackComputation -> (FunPtr CallbackComputationPtr -> IO a) -> IO a
-mkCallbackWrapper comp block = bracket
-	(callbackWrapper $ mkCallbackWrapper' comp)
-	--(freeHaskellFunPtr) -- TODO
-	(\_ -> return ())
-	(block)
+{#fun gsasl_callback  as callback {
+	 cFromMaybeContext `Maybe Context'
+	,rawSession `Session'
+	,cFromEnum `Property'
+	} -> `()' checkRC* #}
 
-mkCallbackWrapper' :: CallbackComputation -> CallbackComputationPtr
-mkCallbackWrapper' comp pCtxt pSession cProp = do
+withCallbackSet :: Context -> CallbackComputation -> IO a -> IO a
+withCallbackSet ctxt comp block = bracket
+	(callbackWrapper $ mkCallbackWrapper comp)
+	(\funptr -> do
+		freeHaskellFunPtr funptr
+		callbackSet ctxt nullFunPtr)
+	(\funptr -> do
+		callbackSet ctxt funptr
+		block)
+
+mkCallbackWrapper :: CallbackComputation -> CallbackComputationPtr
+mkCallbackWrapper comp pCtxt pSession cProp = do
 	callbackHook <- callbackHookGet pCtxt
 	let ctxtStablePtr = castPtrToStablePtr callbackHook
 	ctxt <- (deRefStablePtr ctxtStablePtr :: IO Context)
@@ -221,12 +231,6 @@ mkCallbackWrapper' comp pCtxt pSession cProp = do
 
 foreign import ccall "wrapper"
 	callbackWrapper :: CallbackComputationPtr -> IO (FunPtr CallbackComputationPtr)
-
-{#fun gsasl_callback  as callback {
-	 cFromMaybeContext `Maybe Context'
-	,rawSession `Session'
-	,cFromEnum `Property'
-	} -> `()' checkRC* #}
 
 {#fun gsasl_callback_hook_set as callbackHookSet {
 	 id `ContextPtr'
