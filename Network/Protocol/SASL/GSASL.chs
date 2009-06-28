@@ -317,7 +317,7 @@ encodeDecodeImpl cfunc s input =
 	outChars <- peek pOutChars
 	outLen <- peek pOutLen
 	output <- peekCStringLen (outChars, fromIntegral outLen)
-	free pOutChars
+	free outChars
 	return output
 
 -- Error information
