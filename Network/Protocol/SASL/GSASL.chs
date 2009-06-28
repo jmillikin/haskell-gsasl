@@ -14,34 +14,50 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 -}
 
+{- |
+
+Full documentation available for these functions at
+<http://www.gnu.org/software/gsasl/>.
+
+-}
+
 {-# LANGUAGE ForeignFunctionInterface #-}
 
 #include <gsasl.h>
 
 module Network.Protocol.SASL.GSASL (
-	 ReturnCode(..)
-	,Property(..)
-	,Context
+	 Context
 	,Session
 	,CallbackComputation
 	
+	-- * Context procedures
 	,mkContext
 	,clientMechanisms
 	,serverMechanisms
 	,clientSupportP
 	,serverSupportP
 	,clientSuggestMechanism
+	
+	-- * Callback management
 	,callbackSet
 	,callback
+	
+	-- * Property set/get
 	,propertySet
 	,propertyFast
 	,propertyGet
+	
+	-- * Session procedures
 	,clientStart
 	,serverStart
 	,step
 	,step64
 	,encode
 	,decode
+	
+	-- * Enumerations
+	,ReturnCode(..)
+	,Property(..)
 	) where
 
 import Foreign
@@ -85,8 +101,6 @@ cFromMaybe f (Just x) = f x
 
 cFromMaybeContext = cFromMaybe rawContext
 
--------------------------------------------------------------------------------
-
 checkRC :: CInt -> IO ()
 checkRC x = let rc = cToEnum x in do
 	message <- gsasl_strerror rc
@@ -101,6 +115,8 @@ checkStepRC x = let rc = cToEnum x in do
 		GSASL_OK -> return rc
 		GSASL_NEEDS_MORE -> return rc
 		_ -> error message
+
+-------------------------------------------------------------------------------
 
 -- Context procedures
 mkContext :: IO Context
