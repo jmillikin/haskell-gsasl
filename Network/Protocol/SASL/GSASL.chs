@@ -93,7 +93,6 @@ cFromMaybeContext = cFromMaybe rawContext
 
 checkRC :: CInt -> IO ()
 checkRC x = let rc = cToEnum x in do
-	putStrLn $ "rc = " ++ (show rc)
 	message <- gsasl_strerror rc
 	case rc of
 		GSASL_OK -> return ()
@@ -101,7 +100,6 @@ checkRC x = let rc = cToEnum x in do
 
 checkStepRC :: CInt -> IO ReturnCode
 checkStepRC x = let rc = cToEnum x in do
-	putStrLn $ "rc = " ++ (show rc)
 	message <- gsasl_strerror rc
 	case rc of
 		GSASL_OK -> return rc
