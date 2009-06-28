@@ -26,6 +26,7 @@ Full documentation available for these functions at
 #include <gsasl.h>
 
 module Network.Protocol.SASL.GSASL (
+	-- * Data types
 	 Context
 	,Session
 	,CallbackComputation
@@ -41,7 +42,6 @@ module Network.Protocol.SASL.GSASL (
 	,clientSuggestMechanism
 	
 	-- * Callback management
-	,callbackSet
 	,callback
 	,withCallbackSet
 	
@@ -81,7 +81,7 @@ data Context = Context { rawContext :: ContextPtr }
 data Session = Session { rawSession :: SessionPtr }
 
 type CallbackComputation = (Context -> Session -> Property -> IO ReturnCode)
-type CallbackComputationPtr = (ContextPtr -> SessionPtr -> CInt -> IO CInt)
+type RawCallbackComputation = (ContextPtr -> SessionPtr -> CInt -> IO CInt)
 
 -------------------------------------------------------------------------------
 
@@ -197,7 +197,7 @@ serverMechanisms ctxt =
 -- Callback management
 {#fun gsasl_callback_set as callbackSet {
 	 rawContext `Context'
-	,id `FunPtr CallbackComputationPtr'
+	,id `FunPtr RawCallbackComputation'
 	} -> `()' #}
 
 {#fun gsasl_callback  as callback {
@@ -216,7 +216,7 @@ withCallbackSet ctxt comp block = bracket
 		callbackSet ctxt funptr
 		block)
 
-mkCallbackWrapper :: CallbackComputation -> CallbackComputationPtr
+mkCallbackWrapper :: CallbackComputation -> RawCallbackComputation
 mkCallbackWrapper comp pCtxt pSession cProp = do
 	callbackHook <- callbackHookGet pCtxt
 	let ctxtStablePtr = castPtrToStablePtr callbackHook
@@ -230,7 +230,7 @@ mkCallbackWrapper comp pCtxt pSession cProp = do
 	return . cFromEnum =<< comp ctxt session prop
 
 foreign import ccall "wrapper"
-	callbackWrapper :: CallbackComputationPtr -> IO (FunPtr CallbackComputationPtr)
+	callbackWrapper :: RawCallbackComputation -> IO (FunPtr RawCallbackComputation)
 
 {#fun gsasl_callback_hook_set as callbackHookSet {
 	 id `ContextPtr'
