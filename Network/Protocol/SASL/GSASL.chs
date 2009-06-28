@@ -23,7 +23,6 @@ module Network.Protocol.SASL.GSASL (
 	,Property(..)
 	,Context
 	,Session
-	,Mechanism
 	,CallbackComputation
 	
 	,mkContext
@@ -32,7 +31,6 @@ module Network.Protocol.SASL.GSASL (
 	,clientSupportP
 	,serverSupportP
 	,clientSuggestMechanism
-	,register
 	,callbackSet
 	,callback
 	,propertySet
@@ -57,11 +55,9 @@ import Control.Exception (bracket)
 
 {#pointer *Gsasl as ContextPtr -> Context #}
 {#pointer *Gsasl_session as SessionPtr -> Session #}
-{#pointer *Gsasl_mechanism as MechanismPtr -> Mechanism #}
 
 data Context = Context { rawContext :: ContextPtr }
 data Session = Session { rawSession :: SessionPtr }
-data Mechanism = Mechanism { rawMechanism :: MechanismPtr }
 
 type CallbackComputation = (Context -> Session -> Property -> IO ReturnCode)
 type CallbackComputationPtr = (ContextPtr -> SessionPtr -> CInt -> IO CInt)
@@ -169,11 +165,6 @@ serverMechanisms ctxt =
 	 rawContext `Context'
 	,cSpacedStringFromList* `[String]'
 	} -> `Maybe String' cToMaybeString* #}
-
-{#fun gsasl_register as register {
-	 rawContext `Context'
-	,rawMechanism `Mechanism'
-	} -> `()' checkRC* #}
 
 -- Callback management
 {#fun gsasl_callback_set as callbackSet {
