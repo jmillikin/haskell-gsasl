@@ -314,32 +314,26 @@ withSession :: IO Session -> (Session -> IO a) -> IO a
 withSession getSession = bracket getSession freeSession
 
 step :: Session -> String -> IO (String, ReturnCode)
-step s input =
+step s input = let step' = {#call gsasl_step #} (rawSession s) in
 	withCStringLen input $ \(cInput, cInputLen) -> do
 	alloca $ \pOutChars -> do
 	alloca $ \pOutLen -> do
-	rc <- checkStepRC =<< gsasl_step (rawSession s) cInput (fromIntegral cInputLen) pOutChars pOutLen
+	rc <- checkStepRC =<< step' cInput (fromIntegral cInputLen) pOutChars pOutLen
 	outChars <- peek pOutChars
 	outLen <- peek pOutLen
 	output <- peekCStringLen (outChars, fromIntegral outLen)
 	free outChars
 	return (output, rc)
 
-gsasl_step :: SessionPtr -> CString -> CUInt -> Ptr CString -> Ptr CUInt -> IO CInt
-gsasl_step = {#call gsasl_step as gsasl_step' #}
-
 step64 :: Session -> String -> IO (String, ReturnCode)
-step64 s input =
+step64 s input = let step64' = {#call gsasl_step64 #} (rawSession s) in
 	withCString input $ \cInput -> do
 	alloca $ \pOutChars -> do
-	rc <- checkStepRC =<< gsasl_step64 (rawSession s) cInput pOutChars
+	rc <- checkStepRC =<< step64' cInput pOutChars
 	outChars <- peek pOutChars
 	output <- peekCString outChars
 	free outChars
 	return (output, rc)
-
-gsasl_step64 :: SessionPtr -> CString -> Ptr CString -> IO CInt
-gsasl_step64 = {#call gsasl_step64 as gsasl_step64' #}
 
 encode :: Session -> String -> IO String
 encode = encodeDecodeImpl {#call gsasl_encode #}
