@@ -1,5 +1,5 @@
 name: gsasl
-version: 0.1
+version: 0.2
 stability: Alpha
 synopsis: Bindings for GNU SASL
 license: GPL
