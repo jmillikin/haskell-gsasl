@@ -15,6 +15,7 @@
 
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 module Network.Protocol.SASL.GNU
 	(
 	-- * Library Information
@@ -40,6 +41,13 @@ module Network.Protocol.SASL.GNU
 	, runClient
 	, runServer
 	, mechanismName
+	
+	-- * Error handling
+	, Error (..)
+	, catch
+	, handle
+	, try
+	, throw
 	
 	-- ** Session Properties
 	, Property (..)
@@ -67,11 +75,13 @@ module Network.Protocol.SASL.GNU
 
 -- Imports {{{
 
+import Prelude hiding (catch)
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
 import Data.ByteString.Char8 ()
 import Data.Char (isDigit)
+import Data.Typeable (Typeable)
 import qualified Foreign as F
 import qualified Foreign.C as F
 import System.IO.Unsafe (unsafePerformIO)
@@ -143,11 +153,10 @@ getContext = SASL $ do
 	Context ptr <- R.ask
 	return ptr
 
-setCallback :: (Property -> Session ()) -> SASL ()
-setCallback = undefined
-
-runCallback :: Property -> Session ()
-runCallback = undefined
+bracketSASL :: (F.Ptr Context -> IO a) -> (a -> IO b) -> (a -> IO c) -> SASL c
+bracketSASL before after thing = do
+	ctx <- getContext
+	liftIO $ E.bracket (before ctx) after thing
 
 -- }}}
 
@@ -157,14 +166,10 @@ newtype Mechanism = Mechanism B.ByteString
 	deriving (Show, Eq)
 
 clientMechanisms :: SASL [Mechanism]
-clientMechanisms = do
-	ctx <- getContext
-	liftIO $ F.alloca $ \pStr -> do
+clientMechanisms = bracketSASL io gsasl_free splitMechListPtr where
+	io ctx = F.alloca $ \pStr -> do
 		gsasl_client_mechlist ctx pStr >>= checkRC
-		cstr <- F.peek pStr
-		mechanisms <- splitMechListPtr cstr
-		gsasl_free cstr
-		return mechanisms
+		F.peek pStr
 
 clientSupports :: Mechanism -> SASL Bool
 clientSupports (Mechanism name) = do
@@ -182,14 +187,10 @@ clientSuggestMechanism mechs = do
 		F.maybePeek (fmap Mechanism . B.packCString)
 
 serverMechanisms :: SASL [Mechanism]
-serverMechanisms = do
-	ctx <- getContext
-	liftIO $ F.alloca $ \pStr -> do
+serverMechanisms = bracketSASL io gsasl_free splitMechListPtr where
+	io ctx = F.alloca $ \pStr -> do
 		gsasl_server_mechlist ctx pStr >>= checkRC
-		cstr <- F.peek pStr
-		mechanisms <- splitMechListPtr cstr
-		gsasl_free cstr
-		return mechanisms
+		F.peek pStr
 
 serverSupports :: Mechanism -> SASL Bool
 serverSupports (Mechanism name) = do
@@ -218,7 +219,7 @@ splitMechListPtr ptr = unfoldrM step (ptr, ptr, 0, True) where
 -- SASL Sessions {{{
 
 newtype SessionCtx = SessionCtx (F.Ptr SessionCtx)
-newtype Session a = Session { unSession :: R.ReaderT SessionCtx SASL a }
+newtype Session a = Session { unSession :: R.ReaderT SessionCtx IO a }
 
 instance Functor Session where
 	fmap f = Session . fmap f . unSession
@@ -232,26 +233,27 @@ instance MonadIO Session where
 
 type SessionProc = F.Ptr Context -> F.CString -> F.Ptr (F.Ptr SessionCtx) -> IO F.CInt
 
-runSession :: SessionProc -> Mechanism -> Session a -> SASL a
-runSession start (Mechanism mech) session = sasl where
-	sasl = do
-		ctx <- getContext
-		liftIO $ (withSession ctx) (io ctx)
-	freeSession (SessionCtx ptr) = gsasl_finish ptr
+runSession :: SessionProc -> Mechanism -> Session a -> SASL (Either Error a)
+runSession start (Mechanism mech) session = bracketSASL newSession freeSession io where
 	newSession ctx =
-		B.unsafeUseAsCString mech $ \pMech ->
-		F.alloca $ \pSessionCtx -> do
-			start ctx pMech pSessionCtx >>= checkRC
-			SessionCtx `fmap` F.peek pSessionCtx
-	withSession ctx = E.bracket (newSession ctx) freeSession
-	io ctx sessionCtx =
-		R.runReaderT (unSASL (
-		R.runReaderT (unSession session) sessionCtx)) (Context ctx)
+		B.useAsCString mech $ \pMech ->
+		F.alloca $ \pSessionCtx -> E.handle noSession $ do
+		start ctx pMech pSessionCtx >>= checkRC
+		fmap (Right . SessionCtx) $ F.peek pSessionCtx
+	noSession (SASLException err) = return $ Left err
+	
+	freeSession (Left _) = return ()
+	freeSession (Right (SessionCtx ptr)) = gsasl_finish ptr
+	
+	io (Left err) = return $ Left err
+	io (Right sctx) = E.catch
+		(fmap Right $ R.runReaderT (unSession session) sctx)
+		(\(SASLException err) -> return $ Left err)
 
-runClient :: Mechanism -> Session a -> SASL a
+runClient :: Mechanism -> Session a -> SASL (Either Error a)
 runClient = runSession gsasl_client_start
 
-runServer :: Mechanism -> Session a -> SASL a
+runServer :: Mechanism -> Session a -> SASL (Either Error a)
 runServer = runSession gsasl_server_start
 
 getSessionContext :: Session (F.Ptr SessionCtx)
@@ -265,6 +267,163 @@ mechanismName = do
 	liftIO $ do
 		cstr <- gsasl_mechanism_name sctx
 		Mechanism `fmap` B.packCString cstr
+
+bracketSession :: (F.Ptr SessionCtx -> IO a) -> (a -> IO b) -> (a -> IO c) -> Session c
+bracketSession before after thing = do
+	sctx <- getSessionContext
+	liftIO $ E.bracket (before sctx) after thing
+
+-- }}}
+
+-- Error handling {{{
+
+data Error
+	= UnknownMechanism
+	| MechanismCalledTooManyTimes
+	| MallocError
+	| Base64Error
+	| CryptoError
+	| SASLPrepError
+	| MechanismParseError
+	| AuthenticationError
+	| IntegrityError
+	| NoClientCode
+	| NoServerCode
+	| NoCallback
+	| NoAnonymousToken
+	| NoAuthID
+	| NoAuthzID
+	| NoPassword
+	| NoPasscode
+	| NoPIN
+	| NoService
+	| NoHostname
+	
+	| GSSAPI_ReleaseBufferError
+	| GSSAPI_ImportNameError
+	| GSSAPI_InitSecContextError
+	| GSSAPI_AcceptSecContextError
+	| GSSAPI_UnwrapError
+	| GSSAPI_WrapError
+	| GSSAPI_AquireCredError
+	| GSSAPI_DisplayNameError
+	| GSSAPI_UnsupportedProtectionError
+	| GSSAPI_EncapsulateTokenError
+	| GSSAPI_DecapsulateTokenError
+	| GSSAPI_InquireMechForSASLNameError
+	| GSSAPI_TestOIDSetMemberError
+	| GSSAPI_ReleaseOIDSetError
+	
+	| KerberosV5_InitError
+	| KerberosV5_InternalError
+	
+	| SecurID_ServerNeedAdditionalPasscode
+	| SecurID_ServerNeedNewPIN
+	deriving (Show)
+
+data SASLException = SASLException Error
+	deriving (Show, Typeable)
+
+instance E.Exception SASLException
+
+cFromError :: Error -> F.CInt
+cFromError e = case e of
+	UnknownMechanism -> 2
+	MechanismCalledTooManyTimes -> 3
+	MallocError -> 7
+	Base64Error -> 8
+	CryptoError -> 9
+	SASLPrepError -> 29
+	MechanismParseError -> 30
+	AuthenticationError -> 31
+	IntegrityError -> 33
+	NoClientCode -> 35
+	NoServerCode -> 36
+	NoCallback -> 51
+	NoAnonymousToken -> 52
+	NoAuthID -> 53
+	NoAuthzID -> 54
+	NoPassword -> 55
+	NoPasscode -> 56
+	NoPIN -> 57
+	NoService -> 58
+	NoHostname -> 59
+	GSSAPI_ReleaseBufferError -> 37
+	GSSAPI_ImportNameError -> 38
+	GSSAPI_InitSecContextError -> 39
+	GSSAPI_AcceptSecContextError -> 40
+	GSSAPI_UnwrapError -> 41
+	GSSAPI_WrapError -> 42
+	GSSAPI_AquireCredError -> 43
+	GSSAPI_DisplayNameError -> 44
+	GSSAPI_UnsupportedProtectionError -> 45
+	GSSAPI_EncapsulateTokenError -> 60
+	GSSAPI_DecapsulateTokenError -> 61
+	GSSAPI_InquireMechForSASLNameError -> 62
+	GSSAPI_TestOIDSetMemberError -> 63
+	GSSAPI_ReleaseOIDSetError -> 64
+	KerberosV5_InitError -> 46
+	KerberosV5_InternalError -> 47
+	SecurID_ServerNeedAdditionalPasscode -> 48
+	SecurID_ServerNeedNewPIN -> 49
+
+cToError :: F.CInt -> Error
+cToError x = case x of
+	2 -> UnknownMechanism
+	3 -> MechanismCalledTooManyTimes
+	7 -> MallocError
+	8 -> Base64Error
+	9 -> CryptoError
+	29 -> SASLPrepError
+	30 -> MechanismParseError
+	31 -> AuthenticationError
+	33 -> IntegrityError
+	35 -> NoClientCode
+	36 -> NoServerCode
+	51 -> NoCallback
+	52 -> NoAnonymousToken 
+	53 -> NoAuthID
+	54 -> NoAuthzID
+	55 -> NoPassword
+	56 -> NoPasscode
+	57 -> NoPIN
+	58 -> NoService
+	59 -> NoHostname
+	37 -> GSSAPI_ReleaseBufferError
+	38 -> GSSAPI_ImportNameError
+	39 -> GSSAPI_InitSecContextError
+	40 -> GSSAPI_AcceptSecContextError
+	41 -> GSSAPI_UnwrapError
+	42 -> GSSAPI_WrapError
+	43 -> GSSAPI_AquireCredError
+	44 -> GSSAPI_DisplayNameError
+	45 -> GSSAPI_UnsupportedProtectionError
+	60 -> GSSAPI_EncapsulateTokenError
+	61 -> GSSAPI_DecapsulateTokenError
+	62 -> GSSAPI_InquireMechForSASLNameError
+	63 -> GSSAPI_TestOIDSetMemberError
+	64 -> GSSAPI_ReleaseOIDSetError
+	46 -> KerberosV5_InitError
+	47 -> KerberosV5_InternalError
+	48 -> SecurID_ServerNeedAdditionalPasscode
+	49 -> SecurID_ServerNeedNewPIN
+	_ -> error $ "Unknown GNU SASL return code: " ++ show x
+
+throw :: Error -> Session a
+throw = liftIO . E.throwIO . SASLException
+
+catch :: Session a -> (Error -> Session a) -> Session a
+catch m f = do
+	sctx <- SessionCtx `fmap` getSessionContext
+	Session . liftIO $ E.catch
+		(R.runReaderT (unSession m) sctx)
+		(\(SASLException err) -> R.runReaderT (unSession (f err)) sctx)
+
+handle :: (Error -> Session a) -> Session a -> Session a
+handle = flip catch
+
+try :: Session a -> Session (Either Error a)
+try m = catch (fmap Right m) (return . Left)
 
 -- }}}
 
@@ -349,39 +508,49 @@ getPropertyFast prop = do
 data Progress = Complete | NeedsMore
 	deriving (Show, Eq)
 
+setCallback :: (Property -> Session Progress) -> SASL ()
+setCallback = undefined
+
+runCallback :: Property -> Session Progress
+runCallback = undefined
+
 step :: B.ByteString -> Session (B.ByteString, Progress)
-step input = do
-	sctx <- getSessionContext
-	liftIO $
+step input = bracketSession get free peek where
+	get sctx =
 		B.unsafeUseAsCStringLen input $ \(pInput, inputLen) ->
 		F.alloca $ \pOutput ->
 		F.alloca $ \pOutputLen -> do
 		rc <- gsasl_step sctx pInput (fromIntegral inputLen) pOutput pOutputLen
-		progress <- case rc of
-			0 -> return Complete
-			1 -> return NeedsMore
-			_ -> throwError rc
+		progress <- checkStepRC rc
 		cstr <- F.peek pOutput
 		cstrLen <- F.peek pOutputLen
+		return (cstr, cstrLen, progress)
+	
+	free (cstr, _, _) = gsasl_free cstr
+	peek (cstr, cstrLen, progress) = do
 		output <- B.packCStringLen (cstr, fromIntegral cstrLen)
-		gsasl_free cstr
 		return (output, progress)
 
 step64 :: B.ByteString -> Session (B.ByteString, Progress)
-step64 input = do
-	sctx <- getSessionContext
-	liftIO $
+step64 input = bracketSession get free peek where
+	get sctx =
 		B.useAsCString input $ \pInput ->
 		F.alloca $ \pOutput -> do
 		rc <- gsasl_step64 sctx pInput pOutput
-		progress <- case rc of
-			0 -> return Complete
-			1 -> return NeedsMore
-			_ -> throwError rc
-		cstr <- F.peek pOutput 
+		progress <- checkStepRC rc
+		cstr <- F.peek pOutput
+		return (cstr, progress)
+	
+	free (cstr, _) = gsasl_free cstr
+	peek (cstr, progress) = do
 		output <- B.packCString cstr
-		gsasl_free cstr
 		return (output, progress)
+
+checkStepRC :: F.CInt -> IO Progress
+checkStepRC x = case x of
+	0 -> return Complete
+	1 -> return NeedsMore
+	_ -> E.throwIO (SASLException (cToError x))
 
 encode :: B.ByteString -> Session B.ByteString
 encode input = do
@@ -493,11 +662,9 @@ random size = F.allocaBytes (fromInteger size) $ \buf -> do
 -- Miscellaneous {{{
 
 checkRC :: F.CInt -> IO ()
-checkRC 0 = return ()
-checkRC x = throwError x
-
-throwError :: F.CInt -> IO a
-throwError x = E.throwIO $ E.ErrorCall $ "Error code " ++ show x
+checkRC x = case x of
+	0 -> return ()
+	_ -> E.throwIO (SASLException (cToError x))
 
 unfoldrM :: Monad m => (b -> m (Maybe (a, b))) -> b -> m [a]
 unfoldrM m b = m b >>= \x -> case x of
