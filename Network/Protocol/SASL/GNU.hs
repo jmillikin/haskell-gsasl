@@ -82,6 +82,7 @@ import qualified Data.ByteString.Unsafe as B
 import Data.ByteString.Char8 ()
 import Data.Char (isDigit)
 import Data.Typeable (Typeable)
+import Data.String (IsString, fromString)
 import qualified Foreign as F
 import qualified Foreign.C as F
 import System.IO.Unsafe (unsafePerformIO)
@@ -168,6 +169,9 @@ bracketSASL before after thing = do
 
 newtype Mechanism = Mechanism B.ByteString
 	deriving (Show, Eq)
+
+instance IsString Mechanism where
+	fromString = Mechanism . fromString
 
 clientMechanisms :: SASL [Mechanism]
 clientMechanisms = bracketSASL io gsasl_free splitMechListPtr where
@@ -457,6 +461,7 @@ data Property
 	| ValidateAnonymous
 	| ValidateGSSAPI
 	| ValidateSecurID
+	deriving (Show, Eq)
 
 cFromProperty :: Property -> F.CInt
 cFromProperty x = case x of
