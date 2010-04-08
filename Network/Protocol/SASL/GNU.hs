@@ -25,8 +25,8 @@ module Network.Protocol.SASL.GNU
 	-- * SASL Contexts
 	, SASL
 	, runSASL
-	--, setCallback
-	--, runCallback
+	, setCallback
+	, runCallback
 	
 	-- * Mechanisms
 	, Mechanism (..)
@@ -85,6 +85,7 @@ import Data.Typeable (Typeable)
 import qualified Foreign as F
 import qualified Foreign.C as F
 import System.IO.Unsafe (unsafePerformIO)
+import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Trans.Reader as R
 import qualified Text.ParserCombinators.ReadP as P
@@ -146,7 +147,10 @@ withContext = E.bracket newContext freeContext where
 	newContext = F.alloca $ \pCtxt -> do
 		gsasl_init pCtxt >>= checkRC
 		Context `fmap` F.peek pCtxt
-	freeContext (Context ptr) = gsasl_done ptr
+	freeContext (Context ctx) = do
+		hook <- gsasl_callback_hook_get ctx
+		gsasl_done ctx
+		freeCallbackHook hook
 
 getContext :: SASL (F.Ptr Context)
 getContext = SASL $ do
@@ -473,12 +477,37 @@ cFromProperty x = case x of
 	PropertyScramIter -> 15
 	PropertyScramSalt -> 16
 	PropertyScramSaltedPassword -> 17
-	
 	ValidateSimple -> 500
 	ValidateExternal -> 501
 	ValidateAnonymous -> 502
 	ValidateGSSAPI -> 503
 	ValidateSecurID -> 504
+
+cToProperty :: F.CInt -> Property
+cToProperty x = case x of
+	1 -> PropertyAuthID
+	2 -> PropertyAuthzID
+	3 -> PropertyPassword
+	4 -> PropertyAnonymousToken
+	5 -> PropertyService
+	6 -> PropertyHostname
+	7 -> PropertyGSSAPIDisplayName
+	8 -> PropertyPasscode
+	9 -> PropertySuggestedPIN
+	10 -> PropertyPIN
+	11 -> PropertyRealm
+	12 -> PropertyDigestMD5HashedPassword
+	13 -> PropertyQOPS
+	14 -> PropertyQOP
+	15 -> PropertyScramIter
+	16 -> PropertyScramSalt
+	17 -> PropertyScramSaltedPassword
+	500 -> ValidateSimple
+	501 -> ValidateExternal
+	502 -> ValidateAnonymous
+	503 -> ValidateGSSAPI
+	504 -> ValidateSecurID
+	_   -> error $ "Unknown GNU SASL property code: " ++ show x
 
 setProperty :: Property -> B.ByteString -> Session ()
 setProperty prop bytes = do
@@ -503,16 +532,82 @@ getPropertyFast prop = do
 
 -- }}}
 
+-- Callbacks {{{
+
+type CallbackFn = F.Ptr Context -> F.Ptr SessionCtx -> F.CInt -> IO F.CInt
+data CallbackHook = CallbackHook (F.FunPtr CallbackFn) (Property -> Session Progress)
+
+newCallbackHook :: (Property -> Session Progress) -> IO (F.Ptr CallbackHook, F.FunPtr CallbackFn)
+newCallbackHook cb = E.bracketOnError
+	(wrapCallbackImpl (callbackImpl cb))
+	F.freeHaskellFunPtr
+	(\funPtr -> let hook = CallbackHook funPtr cb in E.bracketOnError
+		(F.newStablePtr hook)
+		F.freeStablePtr
+		(\stablePtr -> let
+			hookPtr = F.castPtr (F.castStablePtrToPtr stablePtr)
+			in return (hookPtr, funPtr)))
+
+freeCallbackHook :: F.Ptr CallbackHook -> IO ()
+freeCallbackHook ptr = if ptr == F.nullPtr then return () else do
+	let stablePtr = F.castPtrToStablePtr $ F.castPtr ptr
+	hook <- F.deRefStablePtr stablePtr
+	F.freeStablePtr stablePtr
+	let (CallbackHook funPtr _) = hook
+	F.freeHaskellFunPtr funPtr
+
+callbackImpl :: (Property -> Session Progress) -> CallbackFn
+callbackImpl cb _ sctx cProp = let
+	globalIO = error "globalIO is not implemented"
+	
+	sessionIO = do
+		let session = cb $ cToProperty cProp
+		fmap cFromProgress $ R.runReaderT (unSession session) (SessionCtx sctx)
+	
+	onError :: SASLException -> IO F.CInt
+	onError (SASLException err) = return $ cFromError err
+	
+	onException :: E.SomeException -> IO F.CInt
+	onException = undefined
+	
+	catchErrors io = E.catches io [E.Handler onError, E.Handler onException]
+	
+	in catchErrors $ if sctx == F.nullPtr then globalIO else sessionIO
+
+foreign import ccall "wrapper"
+	wrapCallbackImpl :: CallbackFn -> IO (F.FunPtr CallbackFn)
+
+setCallback :: (Property -> Session Progress) -> SASL ()
+setCallback cb = do
+	ctx <- getContext
+	liftIO $ do
+		freeCallbackHook =<< gsasl_callback_hook_get ctx
+		(hook, cbPtr) <- newCallbackHook cb
+		gsasl_callback_hook_set ctx hook
+		gsasl_callback_set ctx cbPtr
+
+runCallback :: Property -> Session Progress
+runCallback prop = do
+	-- This is a bit evil; the first field in Gsasl_session is a Gsasl context,
+	-- so it's safe to cast here (assuming they never change the layout).
+	ctx <- fmap F.castPtr getSessionContext
+	hookPtr <- liftIO $ gsasl_callback_hook_get ctx
+	when (hookPtr == F.nullPtr) $ throw NoCallback
+	hook <- liftIO $ F.deRefStablePtr $ F.castPtrToStablePtr hookPtr
+	let (CallbackHook _ cb) = hook
+	cb prop
+
+-- }}}
+
 -- Session IO {{{
 
 data Progress = Complete | NeedsMore
 	deriving (Show, Eq)
 
-setCallback :: (Property -> Session Progress) -> SASL ()
-setCallback = undefined
-
-runCallback :: Property -> Session Progress
-runCallback = undefined
+cFromProgress :: Progress -> F.CInt
+cFromProgress x = case x of
+	Complete -> 0
+	NeedsMore -> 1
 
 step :: B.ByteString -> Session (B.ByteString, Progress)
 step input = bracketSession get free peek where
@@ -695,11 +790,14 @@ foreign import ccall unsafe "gsasl.h gsasl_done"
 foreign import ccall unsafe "gsasl.h gsasl_check_version"
 	gsasl_check_version :: F.CString -> IO F.CString
 
+foreign import ccall unsafe "gsasl.h gsasl_callback_set"
+	gsasl_callback_set :: F.Ptr Context -> F.FunPtr CallbackFn -> IO ()
+
 foreign import ccall unsafe "gsasl.h gsasl_callback_hook_get"
-	gsasl_callback_hook_get :: F.Ptr Context -> IO (F.Ptr ())
+	gsasl_callback_hook_get :: F.Ptr Context -> IO (F.Ptr a)
 
 foreign import ccall unsafe "gsasl.h gsasl_callback_hook_set"
-	gsasl_callback_hook_set :: F.Ptr Context -> F.Ptr () -> IO ()
+	gsasl_callback_hook_set :: F.Ptr Context -> F.Ptr a -> IO ()
 
 foreign import ccall unsafe "gsasl.h gsasl_property_set"
 	gsasl_property_set :: F.Ptr SessionCtx -> F.CInt -> F.CString -> IO ()
