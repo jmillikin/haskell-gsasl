@@ -811,7 +811,7 @@ foreign import ccall unsafe "gsasl.h gsasl_property_set"
 foreign import ccall safe "gsasl.h gsasl_property_get"
 	gsasl_property_get :: F.Ptr SessionCtx -> F.CInt -> IO F.CString
 
-foreign import ccall safe "gsasl.h gsasl_property_fast"
+foreign import ccall unsafe "gsasl.h gsasl_property_fast"
 	gsasl_property_fast :: F.Ptr SessionCtx -> F.CInt -> IO F.CString
 
 foreign import ccall unsafe "gsasl.h gsasl_client_mechlist"
@@ -841,13 +841,13 @@ foreign import ccall safe "gsasl.h gsasl_step"
 foreign import ccall safe "gsasl.h gsasl_step64"
 	gsasl_step64 :: F.Ptr SessionCtx -> F.CString -> F.Ptr F.CString -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_finish"
+foreign import ccall safe "gsasl.h gsasl_finish"
 	gsasl_finish :: F.Ptr SessionCtx -> IO ()
 
-foreign import ccall unsafe "gsasl.h gsasl_encode"
+foreign import ccall safe "gsasl.h gsasl_encode"
 	gsasl_encode :: F.Ptr SessionCtx -> F.CString -> F.CSize -> F.Ptr F.CString -> F.Ptr F.CSize -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_decode"
+foreign import ccall safe "gsasl.h gsasl_decode"
 	gsasl_decode :: F.Ptr SessionCtx -> F.CString -> F.CSize -> F.Ptr F.CString -> F.Ptr F.CSize -> IO F.CInt
 
 foreign import ccall unsafe "gsasl.h gsasl_mechanism_name"
