@@ -327,7 +327,12 @@ data Error
 	
 	| SecurID_ServerNeedAdditionalPasscode
 	| SecurID_ServerNeedNewPIN
-	deriving (Show)
+
+instance Show Error where
+	show = strError
+
+strError :: Error -> String
+strError err = unsafePerformIO $ gsasl_strerror (cFromError err) >>= F.peekCString
 
 data SASLException = SASLException Error
 	deriving (Show, Typeable)
@@ -682,10 +687,6 @@ decode input = do
 
 -- }}}
 
--- TODO: gsasl_strerror?
-
--- TODO: gsasl_strerror_name?
-
 -- Bundled codecs {{{
 
 toBase64 :: B.ByteString -> B.ByteString
@@ -851,6 +852,9 @@ foreign import ccall unsafe "gsasl.h gsasl_decode"
 
 foreign import ccall unsafe "gsasl.h gsasl_mechanism_name"
 	gsasl_mechanism_name :: F.Ptr SessionCtx -> IO F.CString
+
+foreign import ccall unsafe "gsasl.h gsasl_strerror"
+	gsasl_strerror :: F.CInt -> IO F.CString
 
 foreign import ccall unsafe "gsasl.h gsasl_base64_to"
 	gsasl_base64_to :: F.CString -> F.CSize -> F.Ptr F.CString -> F.Ptr F.CSize -> IO F.CInt
