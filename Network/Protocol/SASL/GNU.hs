@@ -55,14 +55,14 @@ module Network.Protocol.SASL.GNU
 	, decode
 	
 	-- * Bundled codecs
-	--, toBase64
-	--, fromBase64
+	, toBase64
+	, fromBase64
 	, md5
 	, sha1
-	--, hmacMD5
-	--, hmacSHA1
-	--, nonce
-	--, random
+	, hmacMD5
+	, hmacSHA1
+	, nonce
+	, random
 	) where
 
 -- Imports {{{
@@ -386,32 +386,32 @@ step64 input = do
 		return (output, progress)
 
 encode :: B.ByteString -> Session B.ByteString
-encode bytes = do
+encode input = do
 	sctx <- getSessionContext
 	liftIO $
-		B.unsafeUseAsCStringLen bytes $ \(cstr, cstrLen) ->
+		B.unsafeUseAsCStringLen input $ \(cstr, cstrLen) ->
 		F.alloca $ \pOutput ->
 		F.alloca $ \pOutputLen -> do
 			gsasl_encode sctx cstr (fromIntegral cstrLen) pOutput pOutputLen >>= checkRC
 			output <- F.peek pOutput
 			outputLen <- fromIntegral `fmap` F.peek pOutputLen
-			bytes <- B.packCStringLen (output, outputLen)
+			outBytes <- B.packCStringLen (output, outputLen)
 			gsasl_free output
-			return bytes
+			return outBytes
 
 decode :: B.ByteString -> Session B.ByteString
-decode bytes = do
+decode input = do
 	sctx <- getSessionContext
 	liftIO $
-		B.unsafeUseAsCStringLen bytes $ \(cstr, cstrLen) ->
+		B.unsafeUseAsCStringLen input $ \(cstr, cstrLen) ->
 		F.alloca $ \pOutput ->
 		F.alloca $ \pOutputLen -> do
 			gsasl_decode sctx cstr (fromIntegral cstrLen) pOutput pOutputLen >>= checkRC
 			output <- F.peek pOutput
 			outputLen <- fromIntegral `fmap` F.peek pOutputLen
-			bytes <- B.packCStringLen (output, outputLen)
+			outputBytes <- B.packCStringLen (output, outputLen)
 			gsasl_free output
-			return bytes
+			return outputBytes
 
 -- }}}
 
@@ -422,14 +422,28 @@ decode bytes = do
 -- Bundled codecs {{{
 
 toBase64 :: B.ByteString -> B.ByteString
-toBase64 = undefined
+toBase64 input = unsafePerformIO $
+	B.unsafeUseAsCStringLen input $ \(pIn, inLen) ->
+	F.alloca $ \pOut ->
+	F.alloca $ \pOutLen -> do
+	gsasl_base64_to pIn (fromIntegral inLen) pOut pOutLen >>= checkRC
+	outLen <- F.peek pOutLen
+	outPtr <- F.peek pOut
+	B.packCStringLen (outPtr, fromIntegral outLen)
 
 fromBase64 :: B.ByteString -> B.ByteString
-fromBase64 = undefined
+fromBase64 input = unsafePerformIO $
+	B.unsafeUseAsCStringLen input $ \(pIn, inLen) ->
+	F.alloca $ \pOut ->
+	F.alloca $ \pOutLen -> do
+	gsasl_base64_from pIn (fromIntegral inLen) pOut pOutLen >>= checkRC
+	outLen <- F.peek pOutLen
+	outPtr <- F.peek pOut
+	B.packCStringLen (outPtr, fromIntegral outLen)
 
 md5 :: B.ByteString -> B.ByteString
-md5 bytes = unsafePerformIO $
-	B.unsafeUseAsCStringLen bytes $ \(pIn, inLen) ->
+md5 input = unsafePerformIO $
+	B.unsafeUseAsCStringLen input $ \(pIn, inLen) ->
 	F.alloca $ \pOut ->
 	F.allocaBytes 16 $ \outBuf -> do
 	F.poke pOut outBuf
@@ -437,8 +451,8 @@ md5 bytes = unsafePerformIO $
 	B.packCStringLen (outBuf, 16)
 
 sha1 :: B.ByteString -> B.ByteString
-sha1 bytes = unsafePerformIO $
-	B.unsafeUseAsCStringLen bytes $ \(pIn, inLen) ->
+sha1 input = unsafePerformIO $
+	B.unsafeUseAsCStringLen input $ \(pIn, inLen) ->
 	F.alloca $ \pOut ->
 	F.allocaBytes 20 $ \outBuf -> do
 	F.poke pOut outBuf
@@ -446,16 +460,35 @@ sha1 bytes = unsafePerformIO $
 	B.packCStringLen (outBuf, 20)
 
 hmacMD5 :: B.ByteString -> B.ByteString -> B.ByteString
-hmacMD5 = undefined
+hmacMD5 key input = unsafePerformIO $
+	B.unsafeUseAsCStringLen key $ \(pKey, keyLen) ->
+	B.unsafeUseAsCStringLen input $ \(pIn, inLen) ->
+	F.alloca $ \pOut ->
+	F.allocaBytes 16 $ \outBuf -> do
+	F.poke pOut outBuf
+	gsasl_hmac_md5 pKey (fromIntegral keyLen) pIn (fromIntegral inLen) pOut >>= checkRC
+	B.packCStringLen (outBuf, 16)
 
 hmacSHA1 :: B.ByteString -> B.ByteString -> B.ByteString
-hmacSHA1 = undefined
+hmacSHA1 key input = unsafePerformIO $
+	B.unsafeUseAsCStringLen key $ \(pKey, keyLen) ->
+	B.unsafeUseAsCStringLen input $ \(pIn, inLen) ->
+	F.alloca $ \pOut ->
+	F.allocaBytes 20 $ \outBuf -> do
+	F.poke pOut outBuf
+	gsasl_hmac_sha1 pKey (fromIntegral keyLen) pIn (fromIntegral inLen) pOut >>= checkRC
+	B.packCStringLen (outBuf, 20)
 
 nonce :: Integer -> IO B.ByteString
-nonce = undefined
+nonce size = F.allocaBytes (fromInteger size) $ \buf -> do
+	gsasl_nonce buf (fromIntegral size) >>= checkRC
+	B.packCStringLen (buf, fromIntegral size)
 
 random :: Integer -> IO B.ByteString
-random = undefined
+random size = F.allocaBytes (fromInteger size) $ \buf -> do
+	gsasl_random buf (fromIntegral size) >>= checkRC
+	B.packCStringLen (buf, fromIntegral size)
+
 
 -- }}}
 
@@ -551,11 +584,29 @@ foreign import ccall unsafe "gsasl.h gsasl_decode"
 foreign import ccall unsafe "gsasl.h gsasl_mechanism_name"
 	gsasl_mechanism_name :: F.Ptr SessionCtx -> IO F.CString
 
+foreign import ccall unsafe "gsasl.h gsasl_base64_to"
+	gsasl_base64_to :: F.CString -> F.CSize -> F.Ptr F.CString -> F.Ptr F.CSize -> IO F.CInt
+
+foreign import ccall unsafe "gsasl.h gsasl_base64_from"
+	gsasl_base64_from :: F.CString -> F.CSize -> F.Ptr F.CString -> F.Ptr F.CSize -> IO F.CInt
+
 foreign import ccall unsafe "gsasl.h gsasl_md5"
 	gsasl_md5 :: F.CString -> F.CSize -> F.Ptr F.CString -> IO F.CInt
 
 foreign import ccall unsafe "gsasl.h gsasl_sha1"
 	gsasl_sha1 :: F.CString -> F.CSize -> F.Ptr F.CString -> IO F.CInt
+
+foreign import ccall unsafe "gsasl.h gsasl_hmac_md5"
+	gsasl_hmac_md5 :: F.CString -> F.CSize -> F.CString -> F.CSize -> F.Ptr F.CString -> IO F.CInt
+
+foreign import ccall unsafe "gsasl.h gsasl_hmac_sha1"
+	gsasl_hmac_sha1 :: F.CString -> F.CSize -> F.CString -> F.CSize -> F.Ptr F.CString -> IO F.CInt
+
+foreign import ccall unsafe "gsasl.h gsasl_nonce"
+	gsasl_nonce :: F.CString -> F.CSize -> IO F.CInt
+
+foreign import ccall unsafe "gsasl.h gsasl_random"
+	gsasl_random :: F.CString -> F.CSize -> IO F.CInt
 
 foreign import ccall unsafe "gsasl.h gsasl_free"
 	gsasl_free :: F.Ptr a -> IO ()
