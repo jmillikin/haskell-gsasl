@@ -72,11 +72,9 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
 import Data.ByteString.Char8 ()
 import Data.Char (isDigit)
-import Data.List (intercalate)
 import qualified Foreign as F
 import qualified Foreign.C as F
 import System.IO.Unsafe (unsafePerformIO)
-import Control.Monad.Trans.Class (lift)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Trans.Reader as R
 import qualified Text.ParserCombinators.ReadP as P
@@ -103,7 +101,7 @@ libraryVersion = unsafePerformIO io where
 		P.char '.'
 		patchS <- P.munch1 isDigit
 		P.eof
-		return $ (read majorS, read minorS, read patchS)
+		return (read majorS, read minorS, read patchS)
 	io = do
 		cstr <- gsasl_check_version F.nullPtr
 		maybeStr <- F.maybePeek F.peekCString cstr
@@ -131,7 +129,7 @@ instance MonadIO SASL where
 -- TODO: more instances
 
 runSASL :: SASL a -> IO a
-runSASL sasl = withContext $ \ctx -> R.runReaderT (unSASL sasl) ctx
+runSASL = withContext . R.runReaderT . unSASL
 
 withContext :: (Context -> IO a) -> IO a
 withContext = E.bracket newContext freeContext where
@@ -171,7 +169,7 @@ clientMechanisms = do
 clientSupports :: Mechanism -> SASL Bool
 clientSupports (Mechanism name) = do
 	ctx <- getContext
-	liftIO $ B.unsafeUseAsCString name $ \pName -> do
+	liftIO $ B.useAsCString name $ \pName -> do
 		cres <- gsasl_client_support_p ctx pName
 		return $ cres == 1
 
@@ -179,9 +177,9 @@ clientSuggestMechanism :: [Mechanism] -> SASL (Maybe Mechanism)
 clientSuggestMechanism mechs = do
 	let bytes = B.intercalate " " [x | Mechanism x <- mechs]
 	ctx <- getContext
-	liftIO $ B.unsafeUseAsCString bytes $ \pMechlist -> do
-		cres <- gsasl_client_suggest_mechanism ctx pMechlist
-		F.maybePeek (fmap Mechanism . B.packCString) cres
+	liftIO $ B.useAsCString bytes $ \pMechlist ->
+		gsasl_client_suggest_mechanism ctx pMechlist >>=
+		F.maybePeek (fmap Mechanism . B.packCString)
 
 serverMechanisms :: SASL [Mechanism]
 serverMechanisms = do
@@ -196,7 +194,7 @@ serverMechanisms = do
 serverSupports :: Mechanism -> SASL Bool
 serverSupports (Mechanism name) = do
 	ctx <- getContext
-	liftIO $ B.unsafeUseAsCString name $ \pName -> do
+	liftIO $ B.useAsCString name $ \pName -> do
 		cres <- gsasl_server_support_p ctx pName
 		return $ cres == 1
 
@@ -327,22 +325,22 @@ setProperty :: Property -> B.ByteString -> Session ()
 setProperty prop bytes = do
 	sctx <- getSessionContext
 	liftIO $
-		B.unsafeUseAsCString bytes $ \cstr ->
-		gsasl_property_set sctx (cFromProperty prop) cstr
+		B.useAsCString bytes $
+		gsasl_property_set sctx (cFromProperty prop)
 
 getProperty :: Property -> Session (Maybe B.ByteString)
 getProperty prop = do
 	sctx <- getSessionContext
-	liftIO $ do
-		cstr <- gsasl_property_get sctx $ cFromProperty prop
-		F.maybePeek B.packCString cstr
+	liftIO $
+		gsasl_property_get sctx (cFromProperty prop) >>=
+		F.maybePeek B.packCString
 
 getPropertyFast :: Property -> Session (Maybe B.ByteString)
 getPropertyFast prop = do
 	sctx <- getSessionContext
-	liftIO $ do
-		cstr <- gsasl_property_fast sctx $ cFromProperty prop
-		F.maybePeek B.packCString cstr
+	liftIO $
+		gsasl_property_fast sctx (cFromProperty prop) >>=
+		F.maybePeek B.packCString
 
 -- }}}
 
@@ -373,7 +371,7 @@ step64 :: B.ByteString -> Session (B.ByteString, Progress)
 step64 input = do
 	sctx <- getSessionContext
 	liftIO $
-		B.unsafeUseAsCString input $ \pInput ->
+		B.useAsCString input $ \pInput ->
 		F.alloca $ \pOutput -> do
 		rc <- gsasl_step64 sctx pInput pOutput
 		progress <- case rc of
