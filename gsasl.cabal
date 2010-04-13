@@ -1,14 +1,21 @@
 name: gsasl
 version: 0.3
-stability: Alpha
 synopsis: Bindings for GNU SASL
 license: GPL-3
 license-file: License.txt
 author: John Millikin
 maintainer: jmillikin@gmail.com
 build-type: Simple
-cabal-version: >=1.2
+cabal-version: >=1.6
 category: Network
+stability: unstable
+bug-reports: mailto:jmillikin@gmail.com
+homepage: http://ianen.org/haskell/bindings/gsasl/
+tested-with: GHC==6.12.1
+
+source-repository head
+  type: darcs
+  location: http://ianen.org/haskell/bindings/gsasl/
 
 library
   build-depends:
