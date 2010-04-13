@@ -180,12 +180,14 @@ newtype Mechanism = Mechanism B.ByteString
 instance IsString Mechanism where
 	fromString = Mechanism . fromString
 
+-- | A list of 'Mechanism's supported by the @libgsasl@ client.
 clientMechanisms :: SASL [Mechanism]
 clientMechanisms = bracketSASL io gsasl_free splitMechListPtr where
 	io ctx = F.alloca $ \pStr -> do
 		gsasl_client_mechlist ctx pStr >>= checkRC
 		F.peek pStr
 
+-- | Whether there is client-side support for a specified 'Mechanism'.
 clientSupports :: Mechanism -> SASL Bool
 clientSupports (Mechanism name) = do
 	ctx <- getContext
@@ -193,6 +195,8 @@ clientSupports (Mechanism name) = do
 		cres <- gsasl_client_support_p ctx pName
 		return $ cres == 1
 
+-- | Given a list of 'Mechanism's, suggest which to use (or 'Nothing' if
+-- no supported 'Mechanism' is found).
 clientSuggestMechanism :: [Mechanism] -> SASL (Maybe Mechanism)
 clientSuggestMechanism mechs = do
 	let bytes = B.intercalate " " [x | Mechanism x <- mechs]
@@ -201,12 +205,14 @@ clientSuggestMechanism mechs = do
 		gsasl_client_suggest_mechanism ctx pMechlist >>=
 		F.maybePeek (fmap Mechanism . B.packCString)
 
+-- | A list of 'Mechanism's supported by the @libgsasl@ server.
 serverMechanisms :: SASL [Mechanism]
 serverMechanisms = bracketSASL io gsasl_free splitMechListPtr where
 	io ctx = F.alloca $ \pStr -> do
 		gsasl_server_mechlist ctx pStr >>= checkRC
 		F.peek pStr
 
+-- | Whether there is server-side support for a specified 'Mechanism'.
 serverSupports :: Mechanism -> SASL Bool
 serverSupports (Mechanism name) = do
 	ctx <- getContext
@@ -265,9 +271,11 @@ runSession start (Mechanism mech) session = bracketSASL newSession freeSession i
 		(fmap Right $ R.runReaderT (unSession session) sctx)
 		(\(SASLException err) -> return $ Left err)
 
+-- | Run a session using the @libgsasl@ client.
 runClient :: Mechanism -> Session a -> SASL (Either Error a)
 runClient = runSession gsasl_client_start
 
+-- | Run a session using the @libgsasl@ server.
 runServer :: Mechanism -> Session a -> SASL (Either Error a)
 runServer = runSession gsasl_server_start
 
@@ -276,6 +284,7 @@ getSessionContext = Session $ do
 	SessionCtx sctx <- R.ask
 	return sctx
 
+-- | The name of the session's SASL mechanism.
 mechanismName :: Session Mechanism
 mechanismName = do
 	sctx <- getSessionContext
@@ -338,6 +347,10 @@ data Error
 instance Show Error where
 	show = strError
 
+-- | Convert an error code to a human-readable string explanation for the
+-- particular error code.
+--
+-- This string can be used to output a diagnostic message to the user.
 strError :: Error -> String
 strError err = unsafePerformIO $ gsasl_strerror (cFromError err) >>= F.peekCString
 
@@ -526,6 +539,8 @@ cToProperty x = case x of
 	504 -> ValidateSecurID
 	_   -> error $ "Unknown GNU SASL property code: " ++ show x
 
+-- | Store some data in the session for the given property. The data must
+-- be @NULL@-terminated.
 setProperty :: Property -> B.ByteString -> Session ()
 setProperty prop bytes = do
 	sctx <- getSessionContext
@@ -533,6 +548,8 @@ setProperty prop bytes = do
 		B.useAsCString bytes $
 		gsasl_property_set sctx (cFromProperty prop)
 
+-- | Retrieve the data stored in the session for the given property,
+-- possibly invoking the current callback to get the value.
 getProperty :: Property -> Session (Maybe B.ByteString)
 getProperty prop = do
 	sctx <- getSessionContext
@@ -544,6 +561,8 @@ getProperty prop = do
 				liftIO $ checkCallbackException sctx
 				return Nothing
 
+-- | Retrieve the data stored in the session for the given property,
+-- without invoking the current callback.
 getPropertyFast :: Property -> Session (Maybe B.ByteString)
 getPropertyFast prop = do
 	sctx <- getSessionContext
@@ -617,6 +636,8 @@ checkCallbackException sctx = do
 		F.freeStablePtr stable
 		E.throwIO (exc :: E.SomeException)
 
+-- | Set the current SASL callback. The callback will be used by mechanisms
+-- to discover various parameters, such as usernames and passwords.
 setCallback :: (Property -> Session Progress) -> SASL ()
 setCallback cb = do
 	ctx <- getContext
@@ -626,6 +647,8 @@ setCallback cb = do
 		gsasl_callback_hook_set ctx hook
 		gsasl_callback_set ctx cbPtr
 
+-- | Run the current callback; the property indicates what action the
+-- callback is expected to perform.
 runCallback :: Property -> Session Progress
 runCallback prop = do
 	-- This is a bit evil; the first field in Gsasl_session is a Gsasl context,
@@ -649,6 +672,11 @@ cFromProgress x = case x of
 	Complete -> 0
 	NeedsMore -> 1
 
+-- | Perform one step of SASL authentication. This reads data from the other
+-- end, processes it (potentially running the callback), and returns data
+-- to be sent back.
+--
+-- Also returns 'NeedsMore' if authentication is not yet complete.
 step :: B.ByteString -> Session (B.ByteString, Progress)
 step input = bracketSession get free peek where
 	get sctx =
@@ -667,6 +695,8 @@ step input = bracketSession get free peek where
 		output <- B.packCStringLen (cstr, fromIntegral cstrLen)
 		return (output, progress)
 
+-- | A simple wrapper around 'step' which uses base64 to decode the input
+-- and encode the output.
 step64 :: B.ByteString -> Session (B.ByteString, Progress)
 step64 input = bracketSession get free peek where
 	get sctx =
@@ -689,6 +719,8 @@ checkStepRC x = case x of
 	1 -> return NeedsMore
 	_ -> E.throwIO (SASLException (cToError x))
 
+-- | Encode data according to the negotiated SASL mechanism. This might mean
+-- the data is integrity or privacy protected.
 encode :: B.ByteString -> Session B.ByteString
 encode input = do
 	sctx <- getSessionContext
@@ -705,6 +737,8 @@ encode input = do
 			gsasl_free output
 			return outBytes
 
+-- | Decode data according to the negotiated SASL mechanism. This might mean
+-- the data is integrity or privacy protected.
 decode :: B.ByteString -> Session B.ByteString
 decode input = do
 	sctx <- getSessionContext
@@ -763,7 +797,9 @@ sha1 input = unsafePerformIO $
 	gsasl_sha1 pIn (fromIntegral inLen) pOut >>= checkRC
 	B.packCStringLen (outBuf, 20)
 
-hmacMD5 :: B.ByteString -> B.ByteString -> B.ByteString
+hmacMD5 :: B.ByteString -- ^ Key
+        -> B.ByteString -- ^ Input data
+        -> B.ByteString
 hmacMD5 key input = unsafePerformIO $
 	B.unsafeUseAsCStringLen key $ \(pKey, keyLen) ->
 	B.unsafeUseAsCStringLen input $ \(pIn, inLen) ->
@@ -773,7 +809,9 @@ hmacMD5 key input = unsafePerformIO $
 	gsasl_hmac_md5 pKey (fromIntegral keyLen) pIn (fromIntegral inLen) pOut >>= checkRC
 	B.packCStringLen (outBuf, 16)
 
-hmacSHA1 :: B.ByteString -> B.ByteString -> B.ByteString
+hmacSHA1 :: B.ByteString -- ^ Key
+         -> B.ByteString -- ^ Input data
+         -> B.ByteString
 hmacSHA1 key input = unsafePerformIO $
 	B.unsafeUseAsCStringLen key $ \(pKey, keyLen) ->
 	B.unsafeUseAsCStringLen input $ \(pIn, inLen) ->
@@ -783,11 +821,13 @@ hmacSHA1 key input = unsafePerformIO $
 	gsasl_hmac_sha1 pKey (fromIntegral keyLen) pIn (fromIntegral inLen) pOut >>= checkRC
 	B.packCStringLen (outBuf, 20)
 
+-- | Returns unpredictable data of a given size
 nonce :: Integer -> IO B.ByteString
 nonce size = F.allocaBytes (fromInteger size) $ \buf -> do
 	gsasl_nonce buf (fromIntegral size) >>= checkRC
 	B.packCStringLen (buf, fromIntegral size)
 
+-- | Returns cryptographically strong random data of a given size
 random :: Integer -> IO B.ByteString
 random size = F.allocaBytes (fromInteger size) $ \buf -> do
 	gsasl_random buf (fromIntegral size) >>= checkRC
