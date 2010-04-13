@@ -19,8 +19,9 @@
 module Network.Protocol.SASL.GNU
 	(
 	-- * Library Information
-	  libraryVersion
-	, headerVersion
+	  headerVersion
+	, libraryVersion
+	, checkVersion
 	
 	-- * SASL Contexts
 	, SASL
@@ -95,14 +96,16 @@ import qualified Text.ParserCombinators.ReadP as P
 
 -- Library Information {{{
 
+-- | Which version of @gsasl.h@ this module was compiled against
 headerVersion :: (Integer, Integer, Integer)
 headerVersion = (major, minor, patch) where
 	major = toInteger hsgsasl_VERSION_MAJOR
 	minor = toInteger hsgsasl_VERSION_MINOR
 	patch = toInteger hsgsasl_VERSION_PATCH
 
-libraryVersion :: (Integer, Integer, Integer)
-libraryVersion = unsafePerformIO io where
+-- | Which version of @libgsasl.so@ is loaded
+libraryVersion :: IO (Integer, Integer, Integer)
+libraryVersion = io where
 	parseVersion str = case P.readP_to_S parser str of
 		[] -> Nothing
 		((parsed, _):_) -> Just parsed
@@ -120,6 +123,10 @@ libraryVersion = unsafePerformIO io where
 		return $ case maybeStr >>= parseVersion of
 			Just version -> version
 			Nothing -> error $ "Invalid version string: " ++ show maybeStr
+
+-- | Whether the header and library versions are compatible
+checkVersion :: IO Bool
+checkVersion = fmap (== 1) hsgsasl_check_version
 
 -- }}}
 
@@ -815,6 +822,9 @@ foreign import ccall unsafe "hsgsasl_VERSION_MINOR"
 
 foreign import ccall unsafe "hsgsasl_VERSION_PATCH"
 	hsgsasl_VERSION_PATCH :: F.CInt
+
+foreign import ccall unsafe "hsgsasl_check_version"
+	hsgsasl_check_version :: IO F.CInt
 
 foreign import ccall unsafe "gsasl.h gsasl_init"
 	gsasl_init :: F.Ptr (F.Ptr Context) -> IO F.CInt
