@@ -529,9 +529,13 @@ setProperty prop bytes = do
 getProperty :: Property -> Session (Maybe B.ByteString)
 getProperty prop = do
 	sctx <- getSessionContext
-	liftIO $
-		gsasl_property_get sctx (cFromProperty prop) >>=
-		F.maybePeek B.packCString
+	liftIO $ do
+		cstr <- gsasl_property_get sctx (cFromProperty prop)
+		if cstr /= F.nullPtr
+			then fmap Just $ B.packCString cstr
+			else do
+				liftIO $ checkCallbackException sctx
+				return Nothing
 
 getPropertyFast :: Property -> Session (Maybe B.ByteString)
 getPropertyFast prop = do
@@ -578,7 +582,16 @@ callbackImpl cb _ sctx cProp = let
 	onError (SASLException err) = return $ cFromError err
 	
 	onException :: E.SomeException -> IO F.CInt
-	onException = undefined
+	onException exc = do
+		-- A bit ugly; session hooks aren't used anywhere else in
+		-- the binding, so the exception is stashed here.
+		stablePtr <- F.newStablePtr exc
+		gsasl_session_hook_set sctx $ F.castStablePtrToPtr stablePtr
+		
+		-- standard libgsasl return codes are all >= 0, so using -1
+		-- provides an easy way to determine later whether the
+		-- exception came from Haskell code.
+		return (-1)
 	
 	catchErrors io = E.catches io [E.Handler onError, E.Handler onException]
 	
@@ -586,6 +599,16 @@ callbackImpl cb _ sctx cProp = let
 
 foreign import ccall "wrapper"
 	wrapCallbackImpl :: CallbackFn -> IO (F.FunPtr CallbackFn)
+
+-- Used to check whether a callback threw an exception
+checkCallbackException :: F.Ptr SessionCtx -> IO ()
+checkCallbackException sctx = do
+	hook <- gsasl_session_hook_get sctx
+	when (hook /= F.nullPtr) $ do
+		let stable = F.castPtrToStablePtr hook
+		exc <- F.deRefStablePtr stable
+		F.freeStablePtr stable
+		E.throwIO (exc :: E.SomeException)
 
 setCallback :: (Property -> Session Progress) -> SASL ()
 setCallback cb = do
@@ -626,6 +649,7 @@ step input = bracketSession get free peek where
 		F.alloca $ \pOutput ->
 		F.alloca $ \pOutputLen -> do
 		rc <- gsasl_step sctx pInput (fromIntegral inputLen) pOutput pOutputLen
+		when (rc /= 0) $ checkCallbackException sctx
 		progress <- checkStepRC rc
 		cstr <- F.peek pOutput
 		cstrLen <- F.peek pOutputLen
@@ -642,6 +666,7 @@ step64 input = bracketSession get free peek where
 		B.useAsCString input $ \pInput ->
 		F.alloca $ \pOutput -> do
 		rc <- gsasl_step64 sctx pInput pOutput
+		when (rc /= 0) $ checkCallbackException sctx
 		progress <- checkStepRC rc
 		cstr <- F.peek pOutput
 		return (cstr, progress)
@@ -664,7 +689,9 @@ encode input = do
 		B.unsafeUseAsCStringLen input $ \(cstr, cstrLen) ->
 		F.alloca $ \pOutput ->
 		F.alloca $ \pOutputLen -> do
-			gsasl_encode sctx cstr (fromIntegral cstrLen) pOutput pOutputLen >>= checkRC
+			rc <- gsasl_encode sctx cstr (fromIntegral cstrLen) pOutput pOutputLen
+			when (rc /= 0) $ checkCallbackException sctx
+			checkRC rc
 			output <- F.peek pOutput
 			outputLen <- fromIntegral `fmap` F.peek pOutputLen
 			outBytes <- B.packCStringLen (output, outputLen)
@@ -678,7 +705,9 @@ decode input = do
 		B.unsafeUseAsCStringLen input $ \(cstr, cstrLen) ->
 		F.alloca $ \pOutput ->
 		F.alloca $ \pOutputLen -> do
-			gsasl_decode sctx cstr (fromIntegral cstrLen) pOutput pOutputLen >>= checkRC
+			rc <- gsasl_decode sctx cstr (fromIntegral cstrLen) pOutput pOutputLen
+			when (rc /= 0) $ checkCallbackException sctx
+			checkRC rc
 			output <- F.peek pOutput
 			outputLen <- fromIntegral `fmap` F.peek pOutputLen
 			outputBytes <- B.packCStringLen (output, outputLen)
@@ -804,6 +833,12 @@ foreign import ccall unsafe "gsasl.h gsasl_callback_hook_get"
 
 foreign import ccall unsafe "gsasl.h gsasl_callback_hook_set"
 	gsasl_callback_hook_set :: F.Ptr Context -> F.Ptr a -> IO ()
+
+foreign import ccall unsafe "gsasl.h gsasl_session_hook_get"
+	gsasl_session_hook_get :: F.Ptr SessionCtx -> IO (F.Ptr a)
+
+foreign import ccall unsafe "gsasl.h gsasl_session_hook_set"
+	gsasl_session_hook_set :: F.Ptr SessionCtx -> F.Ptr a -> IO ()
 
 foreign import ccall unsafe "gsasl.h gsasl_property_set"
 	gsasl_property_set :: F.Ptr SessionCtx -> F.CInt -> F.CString -> IO ()
