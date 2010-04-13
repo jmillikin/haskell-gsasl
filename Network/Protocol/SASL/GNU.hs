@@ -43,13 +43,6 @@ module Network.Protocol.SASL.GNU
 	, runServer
 	, mechanismName
 	
-	-- * Error handling
-	, Error (..)
-	, catch
-	, handle
-	, try
-	, throw
-	
 	-- ** Session Properties
 	, Property (..)
 	, setProperty
@@ -62,6 +55,13 @@ module Network.Protocol.SASL.GNU
 	, step64
 	, encode
 	, decode
+	
+	-- ** Error handling
+	, Error (..)
+	, catch
+	, handle
+	, try
+	, throw
 	
 	-- * Bundled codecs
 	, toBase64
