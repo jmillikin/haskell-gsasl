@@ -87,7 +87,7 @@ import Data.String (IsString, fromString)
 import qualified Foreign as F
 import qualified Foreign.C as F
 import System.IO.Unsafe (unsafePerformIO)
-import Control.Monad (when)
+import Control.Monad (when, unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Trans.Reader as R
 import qualified Text.ParserCombinators.ReadP as P
@@ -221,19 +221,19 @@ serverSupports (Mechanism name) = do
 		return $ cres == 1
 
 splitMechListPtr :: F.CString -> IO [Mechanism]
-splitMechListPtr ptr = unfoldrM step (ptr, ptr, 0, True) where
-	step (_, _, _, False) = return Nothing
-	step (p0, pi, i, _) = F.peek pi >>= \chr -> let
-		pi' = F.plusPtr pi 1
+splitMechListPtr ptr = unfoldrM step' (ptr, ptr, 0, True) where
+	step' (_, _, _, False) = return Nothing
+	step' (p_0, p_i, i, _) = F.peek p_i >>= \chr -> let
+		p_i' = F.plusPtr p_i 1
 		peek continue = if i == 0
-			then step (pi', pi', 0, continue)
+			then step' (p_i', p_i', 0, continue)
 			else do
-				bytes <- B.packCStringLen (p0, i)
-				return $ Just (Mechanism bytes, (pi', pi', 0, continue))
+				bytes <- B.packCStringLen (p_0, i)
+				return $ Just (Mechanism bytes, (p_i', p_i', 0, continue))
 		in case chr of
 			0x00 -> peek False
 			0x20 -> peek True
-			_    -> step (p0, pi', i + 1, True)
+			_    -> step' (p_0, p_i', i + 1, True)
 
 -- }}}
 
@@ -589,7 +589,7 @@ newCallbackHook cb = E.bracketOnError
 			in return (hookPtr, funPtr)))
 
 freeCallbackHook :: F.Ptr CallbackHook -> IO ()
-freeCallbackHook ptr = if ptr == F.nullPtr then return () else do
+freeCallbackHook ptr = unless (ptr == F.nullPtr) $ do
 	let stablePtr = F.castPtrToStablePtr $ F.castPtr ptr
 	hook <- F.deRefStablePtr stablePtr
 	F.freeStablePtr stablePtr
