@@ -1,5 +1,5 @@
 name: gsasl
-version: 0.3
+version: 0.3.1
 synopsis: Bindings for GNU SASL
 license: GPL-3
 license-file: License.txt
@@ -26,6 +26,5 @@ library
   exposed-modules: Network.Protocol.SASL.GNU
 
   ghc-options: -Wall -fno-warn-unused-do-bind
-  extra-libraries: gsasl
-  pkgconfig-depends: libgsasl
+  pkgconfig-depends: libgsasl >= 1.1
   c-sources: hsgsasl-shim.c
