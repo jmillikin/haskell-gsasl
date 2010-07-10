@@ -1,5 +1,5 @@
 name: gsasl
-version: 0.3.1
+version: 0.3.2
 synopsis: Bindings for GNU SASL
 license: GPL-3
 license-file: License.txt

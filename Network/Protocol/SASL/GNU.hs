@@ -854,64 +854,64 @@ unfoldrM m b = m b >>= \x -> case x of
 
 -- FFI imports {{{
 
-foreign import ccall unsafe "hsgsasl_VERSION_MAJOR"
+foreign import ccall "hsgsasl_VERSION_MAJOR"
 	hsgsasl_VERSION_MAJOR :: F.CInt
 
-foreign import ccall unsafe "hsgsasl_VERSION_MINOR"
+foreign import ccall "hsgsasl_VERSION_MINOR"
 	hsgsasl_VERSION_MINOR :: F.CInt
 
-foreign import ccall unsafe "hsgsasl_VERSION_PATCH"
+foreign import ccall "hsgsasl_VERSION_PATCH"
 	hsgsasl_VERSION_PATCH :: F.CInt
 
-foreign import ccall unsafe "hsgsasl_check_version"
+foreign import ccall "hsgsasl_check_version"
 	hsgsasl_check_version :: IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_init"
+foreign import ccall "gsasl.h gsasl_init"
 	gsasl_init :: F.Ptr (F.Ptr Context) -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_done"
+foreign import ccall "gsasl.h gsasl_done"
 	gsasl_done :: F.Ptr Context -> IO ()
 
-foreign import ccall unsafe "gsasl.h gsasl_check_version"
+foreign import ccall "gsasl.h gsasl_check_version"
 	gsasl_check_version :: F.CString -> IO F.CString
 
-foreign import ccall unsafe "gsasl.h gsasl_callback_set"
+foreign import ccall "gsasl.h gsasl_callback_set"
 	gsasl_callback_set :: F.Ptr Context -> F.FunPtr CallbackFn -> IO ()
 
-foreign import ccall unsafe "gsasl.h gsasl_callback_hook_get"
+foreign import ccall "gsasl.h gsasl_callback_hook_get"
 	gsasl_callback_hook_get :: F.Ptr Context -> IO (F.Ptr a)
 
-foreign import ccall unsafe "gsasl.h gsasl_callback_hook_set"
+foreign import ccall "gsasl.h gsasl_callback_hook_set"
 	gsasl_callback_hook_set :: F.Ptr Context -> F.Ptr a -> IO ()
 
-foreign import ccall unsafe "gsasl.h gsasl_session_hook_get"
+foreign import ccall "gsasl.h gsasl_session_hook_get"
 	gsasl_session_hook_get :: F.Ptr SessionCtx -> IO (F.Ptr a)
 
-foreign import ccall unsafe "gsasl.h gsasl_session_hook_set"
+foreign import ccall "gsasl.h gsasl_session_hook_set"
 	gsasl_session_hook_set :: F.Ptr SessionCtx -> F.Ptr a -> IO ()
 
-foreign import ccall unsafe "gsasl.h gsasl_property_set"
+foreign import ccall "gsasl.h gsasl_property_set"
 	gsasl_property_set :: F.Ptr SessionCtx -> F.CInt -> F.CString -> IO ()
 
 foreign import ccall safe "gsasl.h gsasl_property_get"
 	gsasl_property_get :: F.Ptr SessionCtx -> F.CInt -> IO F.CString
 
-foreign import ccall unsafe "gsasl.h gsasl_property_fast"
+foreign import ccall "gsasl.h gsasl_property_fast"
 	gsasl_property_fast :: F.Ptr SessionCtx -> F.CInt -> IO F.CString
 
-foreign import ccall unsafe "gsasl.h gsasl_client_mechlist"
+foreign import ccall "gsasl.h gsasl_client_mechlist"
 	gsasl_client_mechlist :: F.Ptr Context -> F.Ptr F.CString -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_client_support_p"
+foreign import ccall "gsasl.h gsasl_client_support_p"
 	gsasl_client_support_p :: F.Ptr Context -> F.CString -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_client_suggest_mechanism"
+foreign import ccall "gsasl.h gsasl_client_suggest_mechanism"
 	gsasl_client_suggest_mechanism :: F.Ptr Context -> F.CString -> IO F.CString
 
-foreign import ccall unsafe "gsasl.h gsasl_server_mechlist"
+foreign import ccall "gsasl.h gsasl_server_mechlist"
 	gsasl_server_mechlist :: F.Ptr Context -> F.Ptr F.CString -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_server_support_p"
+foreign import ccall "gsasl.h gsasl_server_support_p"
 	gsasl_server_support_p :: F.Ptr Context -> F.CString -> IO F.CInt
 
 foreign import ccall safe "gsasl.h gsasl_client_start"
@@ -935,37 +935,37 @@ foreign import ccall safe "gsasl.h gsasl_encode"
 foreign import ccall safe "gsasl.h gsasl_decode"
 	gsasl_decode :: F.Ptr SessionCtx -> F.CString -> F.CSize -> F.Ptr F.CString -> F.Ptr F.CSize -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_mechanism_name"
+foreign import ccall "gsasl.h gsasl_mechanism_name"
 	gsasl_mechanism_name :: F.Ptr SessionCtx -> IO F.CString
 
-foreign import ccall unsafe "gsasl.h gsasl_strerror"
+foreign import ccall "gsasl.h gsasl_strerror"
 	gsasl_strerror :: F.CInt -> IO F.CString
 
-foreign import ccall unsafe "gsasl.h gsasl_base64_to"
+foreign import ccall "gsasl.h gsasl_base64_to"
 	gsasl_base64_to :: F.CString -> F.CSize -> F.Ptr F.CString -> F.Ptr F.CSize -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_base64_from"
+foreign import ccall "gsasl.h gsasl_base64_from"
 	gsasl_base64_from :: F.CString -> F.CSize -> F.Ptr F.CString -> F.Ptr F.CSize -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_md5"
+foreign import ccall "gsasl.h gsasl_md5"
 	gsasl_md5 :: F.CString -> F.CSize -> F.Ptr F.CString -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_sha1"
+foreign import ccall "gsasl.h gsasl_sha1"
 	gsasl_sha1 :: F.CString -> F.CSize -> F.Ptr F.CString -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_hmac_md5"
+foreign import ccall "gsasl.h gsasl_hmac_md5"
 	gsasl_hmac_md5 :: F.CString -> F.CSize -> F.CString -> F.CSize -> F.Ptr F.CString -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_hmac_sha1"
+foreign import ccall "gsasl.h gsasl_hmac_sha1"
 	gsasl_hmac_sha1 :: F.CString -> F.CSize -> F.CString -> F.CSize -> F.Ptr F.CString -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_nonce"
+foreign import ccall "gsasl.h gsasl_nonce"
 	gsasl_nonce :: F.CString -> F.CSize -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_random"
+foreign import ccall "gsasl.h gsasl_random"
 	gsasl_random :: F.CString -> F.CSize -> IO F.CInt
 
-foreign import ccall unsafe "gsasl.h gsasl_free"
+foreign import ccall "gsasl.h gsasl_free"
 	gsasl_free :: F.Ptr a -> IO ()
 
 -- }}}
