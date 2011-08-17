@@ -16,6 +16,7 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE CPP #-}
 module Network.Protocol.SASL.GNU
 	(
 	-- * Library Information
@@ -115,7 +116,7 @@ libraryVersion = io where
 		minorS <- P.munch1 isDigit
 		_ <- P.char '.'
 		patchS <- P.munch1 isDigit
-		P.eof
+		eof
 		return (read majorS, read minorS, read patchS)
 	io = do
 		cstr <- gsasl_check_version F.nullPtr
@@ -123,6 +124,14 @@ libraryVersion = io where
 		return $ case maybeStr >>= parseVersion of
 			Just version -> version
 			Nothing -> error $ "Invalid version string: " ++ show maybeStr
+	
+#if MIN_VERSION_base(4,2,0)
+	eof = P.eof
+#else
+	eof = do
+		s <- P.look
+		unless (null s) P.pfail
+#endif
 
 -- | Whether the header and library versions are compatible
 checkVersion :: IO Bool
