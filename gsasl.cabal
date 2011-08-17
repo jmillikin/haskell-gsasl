@@ -25,6 +25,6 @@ library
 
   exposed-modules: Network.Protocol.SASL.GNU
 
-  ghc-options: -Wall -fno-warn-unused-do-bind
+  ghc-options: -Wall
   pkgconfig-depends: libgsasl >= 1.1
   c-sources: hsgsasl-shim.c

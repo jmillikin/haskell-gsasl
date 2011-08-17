@@ -111,9 +111,9 @@ libraryVersion = io where
 		((parsed, _):_) -> Just parsed
 	parser = do
 		majorS <- P.munch1 isDigit
-		P.char '.'
+		_ <- P.char '.'
 		minorS <- P.munch1 isDigit
-		P.char '.'
+		_ <- P.char '.'
 		patchS <- P.munch1 isDigit
 		P.eof
 		return (read majorS, read minorS, read patchS)
