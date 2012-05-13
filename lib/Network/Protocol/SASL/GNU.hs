@@ -1,22 +1,21 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+
 -- Copyright (C) 2010 John Millikin <jmillikin@gmail.com>
--- 
+--
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
 -- the Free Software Foundation, either version 3 of the License, or
 -- any later version.
--- 
+--
 -- This program is distributed in the hope that it will be useful,
 -- but WITHOUT ANY WARRANTY; without even the implied warranty of
 -- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 -- GNU General Public License for more details.
--- 
+--
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE CPP #-}
 module Network.Protocol.SASL.GNU
 	(
 	-- * Library Information
@@ -77,20 +76,20 @@ module Network.Protocol.SASL.GNU
 
 -- Imports {{{
 
-import Prelude hiding (catch)
+import           Prelude hiding (catch)
 import qualified Control.Exception as E
+import           Control.Monad (when, unless)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
+import qualified Control.Monad.Trans.Reader as R
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
-import Data.ByteString.Char8 ()
-import Data.Char (isDigit)
-import Data.Typeable (Typeable)
-import Data.String (IsString, fromString)
+import qualified Data.ByteString.Char8 as Char8
+import           Data.Char (isDigit)
+import           Data.String (IsString, fromString)
+import           Data.Typeable (Typeable)
 import qualified Foreign as F
 import qualified Foreign.C as F
-import System.IO.Unsafe (unsafePerformIO)
-import Control.Monad (when, unless)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import qualified Control.Monad.Trans.Reader as R
+import           System.IO.Unsafe (unsafePerformIO)
 import qualified Text.ParserCombinators.ReadP as P
 
 -- }}}
@@ -125,13 +124,9 @@ libraryVersion = io where
 			Just version -> version
 			Nothing -> error $ "Invalid version string: " ++ show maybeStr
 	
-#if MIN_VERSION_base(4,2,0)
-	eof = P.eof
-#else
 	eof = do
 		s <- P.look
 		unless (null s) P.pfail
-#endif
 
 -- | Whether the header and library versions are compatible
 checkVersion :: IO Bool
@@ -208,7 +203,7 @@ clientSupports (Mechanism name) = do
 -- no supported 'Mechanism' is found).
 clientSuggestMechanism :: [Mechanism] -> SASL (Maybe Mechanism)
 clientSuggestMechanism mechs = do
-	let bytes = B.intercalate " " [x | Mechanism x <- mechs]
+	let bytes = B.intercalate (Char8.pack " ") [x | Mechanism x <- mechs]
 	ctx <- getContext
 	liftIO $ B.useAsCString bytes $ \pMechlist ->
 		gsasl_client_suggest_mechanism ctx pMechlist >>=
