@@ -78,7 +78,7 @@ module Network.Protocol.SASL.GNU
 
 import           Prelude hiding (catch)
 import qualified Control.Exception as E
-import           Control.Monad (when, unless)
+import           Control.Monad (ap, when, unless)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.Trans.Reader as R
 import qualified Data.ByteString as B
@@ -141,6 +141,10 @@ newtype SASL a = SASL { unSASL :: R.ReaderT Context IO a }
 
 instance Functor SASL where
 	fmap f = SASL . fmap f . unSASL
+
+instance Applicative SASL where
+        pure = SASL . pure
+        (<*>) = ap
 
 instance Monad SASL where
 	return = SASL . return
@@ -248,6 +252,10 @@ newtype Session a = Session { unSession :: R.ReaderT SessionCtx IO a }
 
 instance Functor Session where
 	fmap f = Session . fmap f . unSession
+
+instance Applicative Session where
+        pure = Session . pure
+        (<*>) = ap
 
 instance Monad Session where
 	return = Session . return
