@@ -77,6 +77,7 @@ module Network.Protocol.SASL.GNU
 -- Imports {{{
 
 import           Prelude hiding (catch)
+import           Control.Applicative (Applicative, pure, (<*>))
 import qualified Control.Exception as E
 import           Control.Monad (ap, when, unless)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
